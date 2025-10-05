@@ -56,6 +56,12 @@ if page == "Daily Log":
     else:
         st.title(f"🥗 Daily Log (Guest Mode)")
 
+    # --- Flash Message Handling ---
+    if 'flash_message' in st.session_state:
+        st.success(st.session_state.flash_message)
+        # Clear the message after displaying it
+        del st.session_state.flash_message
+
     selected_date = st.date_input("Select a date", date.today())
     entries = db.get_entries_by_date(selected_date)
     
@@ -108,7 +114,7 @@ if page == "Daily Log":
                         db.update_goals_for_date(selected_date, new_goals)
                     else:
                         st.session_state.daily_goal_overrides[str(selected_date)] = new_goals
-                    st.success("Goals saved!")
+                    st.session_state.flash_message = "Goals saved successfully!"
                     st.rerun()
 
         st.subheader("Manage Meals (Admin)")
@@ -158,7 +164,7 @@ if page == "Daily Log":
                                 entry_id, row['description'], row['calories'],
                                 row['protein'], row['carbs'], row['fats']
                             )
-                st.success("Changes saved!")
+                st.session_state.flash_message = "Changes saved successfully!"
                 st.rerun()
     else: # If guest
         st.info("You are in guest mode. Data is view-only.")
