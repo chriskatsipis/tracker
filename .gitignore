@@ -1,0 +1,17 @@
+# Ignore the Streamlit secrets file
+.streamlit/
+
+# Ignore VSCode settings folder
+.vscode/
+
+# Ignore Python virtual environment folder
+venv_3_12_7/
+
+# Ignore local database version folder
+local_db_version/
+
+# Ignore Python bytecode files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
