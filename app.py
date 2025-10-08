@@ -30,19 +30,35 @@ page = st.sidebar.radio("Go to", nav_options)
 
 # --- Session State Initialization ---
 if f'default_goals_{user.id}' not in st.session_state:
-    st.session_state[f'default_goals_{user.id}'] = {'calories': 2000, 'protein': 150, 'carbs': 250, 'fats': 60}
+    # Try to fetch saved preferences
+    saved_prefs = db.get_user_preferences(user.id)
+    if saved_prefs:
+        # If found, load them
+        st.session_state[f'default_goals_{user.id}'] = {
+            'calories': saved_prefs['default_calories'],
+            'protein': saved_prefs['default_protein'],
+            'carbs': saved_prefs['default_carbs'],
+            'fats': saved_prefs['default_fats']
+        }
+    else:
+        # Otherwise, use hardcoded defaults for new users
+        st.session_state[f'default_goals_{user.id}'] = {'calories': 2000, 'protein': 150, 'carbs': 250, 'fats': 60}
+
 if f'daily_goal_overrides_{user.id}' not in st.session_state:
     st.session_state[f'daily_goal_overrides_{user.id}'] = {}
 
 # --- Default Goals UI ---
 st.sidebar.header("Set Your Default Goals")
-st.sidebar.caption("These are used as a template for your new days.")
+st.sidebar.caption("These are your master goals. Click save to make them permanent.")
 default_goals = st.session_state[f'default_goals_{user.id}']
 default_goals['calories'] = st.sidebar.number_input("Calories (kcal)", value=default_goals['calories'], min_value=0, step=50, key="default_cal")
 default_goals['protein'] = st.sidebar.number_input("Protein (g)", value=default_goals['protein'], min_value=0, step=5, key="default_pro")
 default_goals['carbs'] = st.sidebar.number_input("Carbs (g)", value=default_goals['carbs'], min_value=0, step=5, key="default_carb")
 default_goals['fats'] = st.sidebar.number_input("Fats (g)", value=default_goals['fats'], min_value=0, step=5, key="default_fat")
 
+if st.sidebar.button("Save Default Goals"):
+    db.upsert_user_preferences(user.id, default_goals)
+    st.sidebar.success("Your default goals have been saved!")
 
 # --- Page Routing ---
 if page == "Daily Log":

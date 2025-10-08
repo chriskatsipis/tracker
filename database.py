@@ -23,7 +23,7 @@ def rate_limit_check(func):
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
-        # The user object is always the last positional argument in our data functions
+        # Get the user from session state to perform the rate limit check.
         user = st.session_state.get('user')
         if not user or not hasattr(user, 'id'):
             raise Exception("User not logged in.")
@@ -65,6 +65,7 @@ def rate_limit_check(func):
     return wrapper
 
 # --- User Authentication Functions ---
+
 def create_user(email, password):
     res = supabase.auth.sign_up({"email": email, "password": password})
     if res.user:
@@ -138,3 +139,25 @@ def approve_user(user_id_to_approve: str):
     """Sets a user's is_approved status to True."""
     if not supabase: return
     supabase.table('profiles').update({'is_approved': True}).eq('id', user_id_to_approve).execute()
+
+# --- User Preferences Functions ---
+
+@st.cache_data(ttl=300) # Cache preferences for 5 minutes
+def get_user_preferences(user_id: str):
+    """Retrieves a user's default goals from the preferences table."""
+    response = supabase.table('user_preferences').select('*').eq('user_id', user_id).execute()
+    return response.data
+
+def upsert_user_preferences(user_id: str, goals: dict):
+    """Creates or updates a user's default goals."""
+    preference_data = {
+        'user_id': user_id,
+        'default_calories': int(goals['calories']),
+        'default_protein': int(goals['protein']),
+        'default_carbs': int(goals['carbs']),
+        'default_fats': int(goals['fats']),
+    }
+    # Upsert will insert a new row, or update it if a row with the user_id already exists.
+    supabase.table('user_preferences').upsert(preference_data).execute()
+    # Clear the cache to ensure the next load gets the fresh data
+    get_user_preferences.clear()

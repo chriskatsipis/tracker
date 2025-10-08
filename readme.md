@@ -6,15 +6,34 @@ A secure, deployable web application built with Streamlit and Supabase to track 
 
 ## Core Features
 
+* **Secure Multi-User Accounts:** Users can request an account and, upon admin approval, manage their own private nutrition log.
+* **Admin Approval Panel:** A special master admin user can view and approve pending account requests.
 * **Daily Food Logging:** Log meals with descriptions, calories, protein, carbs, and fats.
-* **Customizable Daily Goals:** Set default goals and override them for specific days (e.g., workout vs. rest days).
-* **Historical Goal Tracking:** Each meal entry stores the goal that was active at the time, ensuring analytics are always accurate.
-* **Interactive Meal Management:** A single, intuitive data editor allows the admin to add, update, and delete entries on both desktop and mobile.
-* **Rich Analytics Dashboard:** Visualize progress with interactive time-series charts comparing daily intake vs. goals for calories, protein, carbs, and fats.
-* **Secure Admin/Guest Access:**
-    * **Guest Mode:** Publicly accessible, view-only dashboard. Guests cannot modify any data.
-    * **Admin Mode:** Requires secure login. The admin has full control to add, edit, and delete all data.
-* **API Overload Protection:** Implements server-side caching to protect against denial-of-service attacks and conserve free-tier API limits.
+* **Customizable Daily Goals:** Set persistent default goals and override them for specific days.
+* **API Rate Limiting:** Protects the app by limiting non-admin users to 50 database writes per day.
+* **Rich Analytics Dashboard:** Each user can visualize their own progress with interactive charts comparing daily intake vs. goals.
+
+---
+
+## How to Use the App
+
+The application has two distinct user roles.
+
+### As a User
+
+1.  Navigate to the application URL.
+2.  In the sidebar, use the **"Sign Up"** tab to request an account. You will also need to verify your email address.
+3.  Once the administrator approves your account, you can log in using the **"Login"** tab.
+4.  You now have full access to manage your own data:
+    * **Set Default Goals:** Change your macro targets in the sidebar and click "Save Default Goals".
+    * **Set Goals for a Specific Day:** Use the "Set / Edit Goals" section on the Daily Log.
+    * **Manage Meals:** Use the interactive table on the "Daily Log" page to add, edit, or delete your meal entries for any date.
+
+### As the Administrator
+
+1.  Log in with the master admin account credentials.
+2.  You have all the same permissions as a regular user to track your own nutrition.
+3.  Additionally, an **"Admin Panel"** option will appear in the navigation sidebar, allowing you to approve new user requests.
 
 ---
 
@@ -96,7 +115,18 @@ Follow these steps to set up and run the project on your local machine.
         * `last_api_call_date` (date) *settings: 'is nullable', uncheck all else, no default value*
     * **Add a Foreign Key:** Click the "link" icon next to the `id` column and add a foreign key relation to `id` -> `auth.users`.
 
-4.  **Create the Database Trigger to automatically create a profile for each new user:**
+4.  **Create the `user_preferences` Table:**
+    * Go to the **Table Editor** and click **"Create a new table"**.
+    * Name the table `user_preferences`. Uncheck "Enable Row Level Security (RLS)" for now.
+    * Add the following columns:
+        * `user_id` (uuid) **settings:** Make it the **Primary Key**.
+        * `default_calories` (int4)
+        * `default_protein` (int4)
+        * `default_carbs` (int4)
+        * `default_fats` (int4)
+    * **Add a Foreign Key:** Click the "link" icon next to the `user_id` column and add a foreign key relation to `user_id` -> `auth.users`.
+
+5.  **Create the Database Trigger to automatically create a profile for each new user:**
     * Navigate to the **SQL Editor**.
     * Click **"New query"** and paste the entire script below:
     ```
@@ -120,28 +150,36 @@ Follow these steps to set up and run the project on your local machine.
     ```
     * Click **"Run"**.
 
-5.  **Set Your Site URL:**
+6.  **Set Your Site URL:**
     * Go to **Authentication -> URL Configuration** and set the **Site URL** to your app's deployment URL (e.g., `https://your-app-name.streamlit.app`)
 
-6.  **Create Your Admin User:**
+7.  **Create Your Admin User:**
     * Go to **Authentication -> Users** and click **"Add User"**.
     * Enter the email and password you want to use for your admin account.
     * **Important:** After the user is created, copy their **User UUID**. You will need this for the security policies.
 
-7.  **Enable Row Level Security (RLS):**
+8.  **Enable and Configure Row Level Security (RLS):**
+    * Go to **Authentication -> Policies** and enable RLS for the `entries`, `profiles`, and `user_preferences` tables.
+    * You will now create 5 policies in total.
 
-    **Enable RLS:**
-    * Go to **Authentication -> Policies** and enable RLS for both the `entries` and `profiles` tables.
-    * Create Policies for `entries`:
-        * **Policy 1 (Read):** Name: `Allow individual read access`, Operation: `SELECT`, USING expression: `auth.uid() = user_id`
-        * **Policy 2 (Write):** Name: `Allow individual write access`, Operation: `ALL`, USING expression: `auth.uid() = user_id`, WITH CHECK expression: `auth.uid() = user_id`
-        
-    * Create Policies for `profiles`:
-        * **Policy 1 (Read Self):** Name: `Allow users to read own profile`, Operation: `SELECT`, USING expression: `auth.uid() = id`
+    * **Policy for `entries` Table:**
+        * **Name:** `Allow individual full access on entries`
+        * **Operation:** `ALL`
+        * **USING expression:** `auth.uid() = user_id`
+        * **WITH CHECK expression:** `auth.uid() = user_id`
+
+    * **Policy for `user_preferences` Table:**
+        * **Name:** `Allow individual full access on preferences`
+        * **Operation:** `ALL`
+        * **USING expression:** `auth.uid() = user_id`
+        * **WITH CHECK expression:** `auth.uid() = user_id`
+
+    * **Policies for `profiles` Table (Create 3 separate policies):**
+        * **Policy 1 (Read Self):** Name: `Allow users to read their own profile`, Operation: `SELECT`, USING expression: `auth.uid() = id`
         * **Policy 2 (Admin Read All):** Name: `Allow master admin to read all profiles`, Operation: `SELECT`, USING expression: `auth.uid() = 'PASTE_YOUR_MASTER_USER_UUID_HERE'`
         * **Policy 3 (Admin Update):** Name: `Allow master admin to update profiles`, Operation: `UPDATE`, USING expression: `auth.uid() = 'PASTE_YOUR_MASTER_USER_UUID_HERE'`
-
-8.  **Manually Approve Your Admin Account:**
+        
+9.  **Manually Approve Your Admin Account:**
     * Go to the **Table Editor** -> `profiles` table.
     * Find your master admin's row and change `is_approved` from `false` to `true`.
 
@@ -169,10 +207,12 @@ Follow these steps to set up and run the project on your local machine.
     * Find the required credentials:
     1. URL: In your Supabase dashboard, find the URL in Project Settings -> Data API -> Project URL 
     2. KEY: Find the API Key in Project Settings -> API Keys -> Legacy API Keys (use the key labeled anon and public)
+    3. MASTER_USER_ID
     * Add your Supabase credentials to this file:
         ```toml
         SUPABASE_URL = "https://<your-project-id>.supabase.co"
         SUPABASE_KEY = "your-anon-public-key"
+        MASTER_USER_ID = "paste-your-admin-user-uuid-from-supabase-auth-here"
         ```
 5.  **Run the Application:**
     ```bash
