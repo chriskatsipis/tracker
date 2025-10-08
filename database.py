@@ -161,3 +161,37 @@ def upsert_user_preferences(user_id: str, goals: dict):
     supabase.table('user_preferences').upsert(preference_data).execute()
     # Clear the cache to ensure the next load gets the fresh data
     get_user_preferences.clear()
+
+# --- Recipe Functions ---
+
+def add_recipe(user_id: str, name: str, description: str, instructions: str, servings: float, nutrition: dict, is_public: bool):
+    """Adds a new recipe to the database."""
+    recipe_data = {
+        'user_id': user_id,
+        'name': name,
+        'description': description,
+        'instructions': instructions,
+        'servings_per_recipe': servings,
+        'calories_per_serving': int(nutrition['calories']),
+        'protein_per_serving': int(nutrition['protein']),
+        'carbs_per_serving': int(nutrition['carbs']),
+        'fats_per_serving': int(nutrition['fats']),
+        'is_public': is_public
+    }
+    supabase.table('recipes').insert(recipe_data).execute()
+
+def get_recipes(user_id: str):
+    """Fetches all recipes created by a specific user."""
+    response = supabase.table('recipes').select('*').eq('user_id', user_id).order('name').execute()
+    return response.data
+
+def get_public_recipes():
+    """Fetches all recipes marked as public."""
+    response = supabase.table('recipes').select('*').eq('is_public', True).order('name').execute()
+    return response.data
+
+def delete_recipe(recipe_id: int):
+    """Deletes a recipe by its ID."""
+    supabase.table('recipes').delete().eq('id', recipe_id).execute()
+
+# Note: An update_recipe function would follow the same pattern if you add an "Edit" feature later.

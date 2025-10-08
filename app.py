@@ -23,7 +23,7 @@ is_master_admin = user.id == st.secrets.get("MASTER_USER_ID")
 # --- Main App UI ---
 st.sidebar.header("Navigation")
 # Add Admin Panel to navigation if user is the master admin
-nav_options = ["Daily Log", "Analytics Dashboard"]
+nav_options = ["Daily Log", "Analytics Dashboard", "Recipes"]
 if is_master_admin:
     nav_options.append("Admin Panel")
 page = st.sidebar.radio("Go to", nav_options)
@@ -119,6 +119,35 @@ if page == "Daily Log":
                     daily_goal_overrides[str(selected_date)] = new_goals
                 st.session_state.flash_message = "Goals saved successfully!"
                 st.rerun()
+
+    # --- Log from Recipe ---
+    with st.expander("🍳 Log a Meal from Your Recipes"):
+        user_recipes = db.get_recipes(user.id)
+        if not user_recipes:
+            st.info("You don't have any recipes to log. Go to the 'Recipes' page to add one.")
+        else:
+            recipe_options = {recipe['name']: recipe for recipe in user_recipes}
+            selected_recipe_name = st.selectbox("Choose a recipe to log", options=recipe_options.keys())
+            
+            selected_recipe = recipe_options[selected_recipe_name]
+            
+            servings_eaten = st.number_input("How many servings did you eat?", min_value=0.1, step=0.25, value=1.0)
+            
+            if st.button("Add Recipe to Log"):
+                # Calculate the nutrition based on servings eaten
+                final_calories = selected_recipe['calories_per_serving'] * servings_eaten
+                final_protein = selected_recipe['protein_per_serving'] * servings_eaten
+                final_carbs = selected_recipe['carbs_per_serving'] * servings_eaten
+                final_fats = selected_recipe['fats_per_serving'] * servings_eaten
+                
+                # Use the day's goals (already calculated on this page)
+                desc = f"{selected_recipe['name']} ({servings_eaten} servings)"
+                
+                # Add to the database
+                db.add_entry(selected_date, desc, final_calories, final_protein, final_carbs, final_fats, user_day_goals, user.id)
+                st.success(f"Added '{desc}' to your log for {selected_date.strftime('%B %d, %Y')}!")
+                st.rerun()
+
     st.subheader("Manage Your Meals")
     if entries:
         df_editor = pd.DataFrame.from_records(entries).set_index('id')
@@ -183,6 +212,64 @@ elif page == "Analytics Dashboard":
         fig_fats = px.line(daily_summary, x='entry_date', y=['actual_fats', 'goal_fats'], title='Daily Fat Intake vs. Goal')
         st.plotly_chart(fig_fats, use_container_width=True)
 
+elif page == "Recipes":
+    st.title("🍳 Your Recipe Book")
+
+    # --- Add New Recipe Form ---
+    with st.expander("＋ Add a New Recipe"):
+        with st.form("new_recipe_form", clear_on_submit=True):
+            st.subheader("Recipe Details")
+            recipe_name = st.text_input("Recipe Name")
+            recipe_desc = st.text_area("Description")
+            recipe_servings = st.number_input("Total Servings this Recipe Makes", min_value=0.1, step=0.5, value=1.0)
+            
+            st.subheader("Nutrition per Serving")
+            c1, c2 = st.columns(2)
+            recipe_cals = c1.number_input("Calories (kcal)", min_value=0)
+            recipe_prot = c2.number_input("Protein (g)", min_value=0)
+            recipe_carbs = c1.number_input("Carbs (g)", min_value=0)
+            recipe_fats = c2.number_input("Fats (g)", min_value=0)
+
+            st.subheader("Preparation")
+            recipe_instr = st.text_area("Instructions")
+            
+            recipe_public = st.toggle("Make Recipe Public?", help="If enabled, other users will be able to see and use this recipe.")
+
+            if st.form_submit_button("Save Recipe"):
+                nutrition = {'calories': recipe_cals, 'protein': recipe_prot, 'carbs': recipe_carbs, 'fats': recipe_fats}
+                db.add_recipe(user.id, recipe_name, recipe_desc, recipe_instr, recipe_servings, nutrition, recipe_public)
+                st.success(f"Recipe '{recipe_name}' saved successfully!")
+                st.rerun()
+
+    # --- Display Recipes ---
+    my_recipes, public_recipes = st.tabs(["My Recipes", "Public Recipes"])
+
+    with my_recipes:
+        st.header("My Personal Recipes")
+        user_recipes = db.get_recipes(user.id)
+        if not user_recipes:
+            st.info("You haven't added any recipes yet. Use the form above to get started!")
+        for recipe in user_recipes:
+            with st.expander(f"{recipe['name']} ({recipe['servings_per_recipe']} servings)"):
+                st.markdown(f"**Description:** {recipe['description']}")
+                st.markdown(f"**Nutrition per Serving:** {recipe['calories_per_serving']} kcal, {recipe['protein_per_serving']}g P, {recipe['carbs_per_serving']}g C, {recipe['fats_per_serving']}g F")
+                st.markdown("**Instructions:**")
+                st.markdown(recipe['instructions'])
+                if st.button("Delete", key=f"del_{recipe['id']}"):
+                    db.delete_recipe(recipe['id'])
+                    st.rerun()
+
+    with public_recipes:
+        st.header("Public Recipes from the Community")
+        all_public_recipes = db.get_public_recipes()
+        if not all_public_recipes:
+            st.info("No public recipes are available yet.")
+        for recipe in all_public_recipes:
+             with st.expander(f"{recipe['name']} ({recipe['servings_per_recipe']} servings)"):
+                st.markdown(f"**Description:** {recipe['description']}")
+                st.markdown(f"**Nutrition per Serving:** {recipe['calories_per_serving']} kcal, {recipe['protein_per_serving']}g P, {recipe['carbs_per_serving']}g C, {recipe['fats_per_serving']}g F")
+                st.markdown("**Instructions:**")
+                st.markdown(recipe['instructions'])
 
 elif page == "Admin Panel" and is_master_admin:
     st.title("👑 Admin Panel")

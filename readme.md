@@ -8,11 +8,12 @@ A secure, deployable web application built with Streamlit and Supabase to track 
 
 * **Secure Multi-User Accounts:** Users can request an account and, upon admin approval, manage their own private nutrition log.
 * **Admin Approval Panel:** A special master admin user can view and approve pending account requests.
+* **Recipe Management:** Create, save, and manage personal recipes with detailed instructions and per-serving nutritional information. Share recipes publicly with the community.
+* **Quick Recipe Logging:** Log meals directly from your saved recipes, with automatic calculation of macros based on the number of servings eaten.
 * **Daily Food Logging:** Log meals with descriptions, calories, protein, carbs, and fats.
 * **Customizable Daily Goals:** Set persistent default goals and override them for specific days.
 * **API Rate Limiting:** Protects the app by limiting non-admin users to 50 database writes per day.
 * **Rich Analytics Dashboard:** Each user can visualize their own progress with interactive charts comparing daily intake vs. goals.
-
 ---
 
 ## How to Use the App
@@ -21,20 +22,23 @@ The application has two distinct user roles.
 
 ### As a User
 
-1.  Navigate to the application URL.
-2.  In the sidebar, use the **"Sign Up"** tab to request an account. You will also need to verify your email address.
-3.  Once the administrator approves your account, you can log in using the **"Login"** tab.
-4.  You now have full access to manage your own data:
-    * **Set Default Goals:** Change your macro targets in the sidebar and click "Save Default Goals".
-    * **Set Goals for a Specific Day:** Use the "Set / Edit Goals" section on the Daily Log.
-    * **Manage Meals:** Use the interactive table on the "Daily Log" page to add, edit, or delete your meal entries for any date.
+1.  Navigate to the application URL and log in.
+2.  **Manage Recipes:**
+    * Navigate to the new **"Recipes"** page from the sidebar.
+    * Use the form to add new recipes, including their per-serving nutrition. You can choose to keep them private or make them public.
+    * Browse "My Recipes" and "Public Recipes" in the tabs.
+3.  **Track Daily Intake:**
+    * On the **"Daily Log"** page, use the **"Log from Recipe"** section to quickly add a meal from your saved recipes.
+    * Alternatively, use the interactive table under "Manage Your Meals" to add, edit, or delete individual meal entries.
+4.  **Set Goals:**
+    * Change your macro targets in the sidebar and click "Save Default Goals".
+    * Use the "Set / Edit Goals" section on the Daily Log to override defaults for a specific day.
 
 ### As the Administrator
 
 1.  Log in with the master admin account credentials.
-2.  You have all the same permissions as a regular user to track your own nutrition.
+2.  You have all the same permissions as a regular user.
 3.  Additionally, an **"Admin Panel"** option will appear in the navigation sidebar, allowing you to approve new user requests.
-
 ---
 
 ## Tech Stack
@@ -86,45 +90,62 @@ Follow these steps to set up and run the project on your local machine.
 
 1.  **Create a New Project:** In your Supabase dashboard, create a new project.
 
-2.  **Create the Databse Tables using SQL:**
-    * Navigate to the SQL Editor in your Supabase dashboard.
-    * Click "New query".
-    * Paste the entire script below and click "Run". This will create the profiles, user_preferences, and entries tables with the correct structure:
-    ```
+2.  **Create the Database Tables via SQL:**
+    * Navigate to the **SQL Editor** in your Supabase dashboard.
+    * Click **"New query"**.
+    * Paste the entire script below and click **"Run"**. This will create all the necessary tables.
+
+    ```sql
     CREATE TABLE public.profiles (
-        id uuid NOT NULL,
-        email text NULL,
-        is_approved boolean NOT NULL DEFAULT false,
-        api_call_count integer NOT NULL DEFAULT 0,
-        last_api_call_date date NULL,
-        CONSTRAINT profiles_pkey PRIMARY KEY (id),
-        CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users (id)
+      id uuid NOT NULL,
+      email text NULL,
+      is_approved boolean NOT NULL DEFAULT false,
+      api_call_count integer NOT NULL DEFAULT 0,
+      last_api_call_date date NULL,
+      CONSTRAINT profiles_pkey PRIMARY KEY (id),
+      CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users (id)
     ) TABLESPACE pg_default;
 
     CREATE TABLE public.user_preferences (
-        id uuid NOT NULL,
-        default_calories integer NOT NULL,
-        default_protein integer NOT NULL,
-        default_carbs integer NOT NULL,
-        default_fats integer NOT NULL,
-        CONSTRAINT user_preferences_pkey PRIMARY KEY (id),
-        CONSTRAINT user_preferences_id_fkey FOREIGN KEY (id) REFERENCES auth.users (id)
+      id uuid NOT NULL,
+      default_calories integer NOT NULL,
+      default_protein integer NOT NULL,
+      default_carbs integer NOT NULL,
+      default_fats integer NOT NULL,
+      CONSTRAINT user_preferences_pkey PRIMARY KEY (id),
+      CONSTRAINT user_preferences_id_fkey FOREIGN KEY (id) REFERENCES auth.users (id)
     ) TABLESPACE pg_default;
 
     CREATE TABLE public.entries (
-        id bigint GENERATED BY DEFAULT AS IDENTITY NOT NULL,
-        user_id uuid NOT NULL,
-        entry_date date NOT NULL,
-        description text NOT NULL,
-        calories integer NOT NULL,
-        protein integer NOT NULL,
-        carbs integer NOT NULL,
-        fats integer NOT NULL,
-        goal_calories integer NOT NULL,
-        goal_protein integer NOT NULL,
-        goal_carbs integer NOT NULL,
-        goal_fats integer NOT NULL,
-        CONSTRAINT entries_pkey PRIMARY KEY (id)
+      id bigint GENERATED BY DEFAULT AS IDENTITY NOT NULL,
+      user_id uuid NOT NULL,
+      entry_date date NOT NULL,
+      description text NOT NULL,
+      calories integer NOT NULL,
+      protein integer NOT NULL,
+      carbs integer NOT NULL,
+      fats integer NOT NULL,
+      goal_calories integer NOT NULL,
+      goal_protein integer NOT NULL,
+      goal_carbs integer NOT NULL,
+      goal_fats integer NOT NULL,
+      CONSTRAINT entries_pkey PRIMARY KEY (id)
+    ) TABLESPACE pg_default;
+
+    CREATE TABLE public.recipes (
+      id bigint GENERATED BY DEFAULT AS IDENTITY NOT NULL,
+      user_id uuid NOT NULL,
+      name text NOT NULL,
+      description text NULL,
+      instructions text NULL,
+      servings_per_recipe real NOT NULL,
+      calories_per_serving integer NOT NULL,
+      protein_per_serving integer NOT NULL,
+      carbs_per_serving integer NOT NULL,
+      fats_per_serving integer NOT NULL,
+      is_public boolean NOT NULL DEFAULT false,
+      CONSTRAINT recipes_pkey PRIMARY KEY (id),
+      CONSTRAINT recipes_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users (id)
     ) TABLESPACE pg_default;
     ```
 
@@ -161,31 +182,29 @@ Follow these steps to set up and run the project on your local machine.
     * **Important:** After the user is created, copy their **User UUID**. You will need this for the security policies.
 
 6.  **Enable and Configure Row Level Security (RLS):**
-    * Go to **Authentication -> Policies** and enable RLS for the `entries`, `profiles`, and `user_preferences` tables.
-    * You will now create 5 policies in total.
+    * Go to **Authentication -> Policies** and enable RLS for the `entries`, `profiles`, `user_preferences`, and `recipes` tables.
+    * Go to the **SQL Editor** and run the following script to create all the necessary policies.
 
-    * **Policy for `entries` Table:**
-        * **Name:** `Allow individual full access on entries`
-        * **Operation:** `ALL`
-        * **USING expression:** `auth.uid() = user_id`
-        * **WITH CHECK expression:** `auth.uid() = user_id`
+    ```sql
+    -- Policies for 'entries' table
+    CREATE POLICY "Allow individual full access to entries" ON public.entries FOR ALL USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
 
-    * **Policy for `user_preferences` Table:**
-        * **Name:** `Allow individual full access on preferences`
-        * **Operation:** `ALL`
-        * **USING expression:** `auth.uid() = user_id`
-        * **WITH CHECK expression:** `auth.uid() = user_id`
+    -- Policies for 'user_preferences' table
+    CREATE POLICY "Allow individual full access to preferences" ON public.user_preferences FOR ALL USING ((auth.uid() = id)) WITH CHECK ((auth.uid() = id));
 
-    * **Policies for `profiles` Table (Create 3 separate policies):**
-        * **Policy 1 (Read Self):** Name: `Allow users to read their own profile`, Operation: `SELECT`, USING expression: `auth.uid() = id`
-        * **Policy 2 (Admin Read All):** Name: `Allow master admin to read all profiles`, Operation: `SELECT`, USING expression: `auth.uid() = 'PASTE_YOUR_MASTER_USER_UUID_HERE'`
-        * **Policy 3 (Admin Update):** Name: `Allow master admin to update profiles`, Operation: `UPDATE`, USING expression: `auth.uid() = 'PASTE_YOUR_MASTER_USER_UUID_HERE'`
-        
+    -- Policies for 'profiles' table
+    CREATE POLICY "Allow users to read own profile" ON public.profiles FOR SELECT USING ((auth.uid() = id));
+    CREATE POLICY "Allow master admin to read all profiles" ON public.profiles FOR SELECT USING ((auth.uid() = 'PASTE_YOUR_MASTER_USER_UUID_HERE'::uuid));
+    CREATE POLICY "Allow master admin to update profiles" ON public.profiles FOR UPDATE USING ((auth.uid() = 'PASTE_YOUR_MASTER_USER_UUID_HERE'::uuid));
+
+    -- Policies for 'recipes' table
+    CREATE POLICY "Allow individual full access to own recipes" ON public.recipes FOR ALL USING ((auth.uid() = user_id)) WITH CHECK ((auth.uid() = user_id));
+    CREATE POLICY "Allow all users read access to public recipes" ON public.recipes FOR SELECT USING ((is_public = true));
+    ```
+
 7.  **Manually Approve Your Admin Account:**
     * Go to the **Table Editor** -> `profiles` table.
     * Find your master admin's row and change `is_approved` from `false` to `true`.
-
-
 
 ### 3. Local Code Setup
 
