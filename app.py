@@ -33,12 +33,13 @@ if f'default_goals_{user.id}' not in st.session_state:
     # Try to fetch saved preferences
     saved_prefs = db.get_user_preferences(user.id)
     if saved_prefs:
-        # If found, load them
+        # If found, load the first record from the list
+        user_prefs = saved_prefs[0]
         st.session_state[f'default_goals_{user.id}'] = {
-            'calories': saved_prefs['default_calories'],
-            'protein': saved_prefs['default_protein'],
-            'carbs': saved_prefs['default_carbs'],
-            'fats': saved_prefs['default_fats']
+            'calories': user_prefs['default_calories'],
+            'protein': user_prefs['default_protein'],
+            'carbs': user_prefs['default_carbs'],
+            'fats': user_prefs['default_fats']
         }
     else:
         # Otherwise, use hardcoded defaults for new users

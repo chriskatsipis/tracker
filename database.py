@@ -145,13 +145,13 @@ def approve_user(user_id_to_approve: str):
 @st.cache_data(ttl=300) # Cache preferences for 5 minutes
 def get_user_preferences(user_id: str):
     """Retrieves a user's default goals from the preferences table."""
-    response = supabase.table('user_preferences').select('*').eq('user_id', user_id).execute()
+    response = supabase.table('user_preferences').select('*').eq('id', user_id).execute()
     return response.data
 
 def upsert_user_preferences(user_id: str, goals: dict):
     """Creates or updates a user's default goals."""
     preference_data = {
-        'user_id': user_id,
+        'id': user_id,
         'default_calories': int(goals['calories']),
         'default_protein': int(goals['protein']),
         'default_carbs': int(goals['carbs']),
