@@ -66,62 +66,86 @@ Follow these steps to set up and run the project on your local machine.
 ### 2. Supabase Project Setup
 
 1.  **Create a New Project:** In your Supabase dashboard, create a new project.
+
 2.  **Create the `entries` Table:**
     * Go to the **Table Editor** and click **"Create a new table"**.
     * Name the table `entries`.
     * **Important:** Uncheck "Enable Row Level Security (RLS)" for now. We will enable it later.
     * Add the following columns with the specified types:
-        * `id` (int8) - *Is Primary Key*
-        * `entry_date` (date)
-        * `description` (text)
-        * `calories` (int4)
-        * `protein` (int4)
-        * `carbs` (int4)
-        * `fats` (int4)
-        * `goal_calories` (int4)
-        * `goal_protein` (int4)
-        * `goal_carbs` (int4)
-        * `goal_fats` (int4)
-3.  **Create the `user_id` Column:**
-    * After the table is created, click **"Add column"**.
-    * **Name:** `user_id`
-    * **Type:** `uuid`
-    * **Important:** Uncheck **"Allow Nullable"**.
-    * Leave all other settings as default and save.
-4.  **Create Your Admin User:**
+        * `id` (int8) *settings: 'is unique', 'is identity'*
+        * `entry_date` (date) *settings: uncheck all, no default value*
+        * `description` (text) *settings: uncheck all, no default value*
+        * `calories` (int4) *settings: uncheck all, no default value*
+        * `protein` (int4) *settings: uncheck all, no default value*
+        * `carbs` (int4) *settings: uncheck all, no default value*
+        * `fats` (int4) *settings: uncheck all, no default value*
+        * `goal_calories` (int4) *settings: uncheck all, no default value*
+        * `goal_protein` (int4) *settings: uncheck all, no default value*
+        * `goal_carbs` (int4) *settings: uncheck all, no default value*
+        * `goal_fats` (int4) *settings: uncheck all, no default value*
+        * `user_id` (uuid) *settings: uncheck all, no default value*
+
+3.  **Create the `profiles` Table:**
+    * Click **"Create a new table"** again.
+    * Name the table `profiles`. Uncheck "Enable Row Level Security (RLS)" for now.
+    * Add the following columns:
+        * `id` (uuid) *settings: uncheck all, no default value*
+        * `email` (text) *settings: 'is nullable', uncheck all else, no default value*
+        * `is_approved` (bool) *settings: uncheck all, default: 'false'*
+        * `api_call_count` (int4) *settings: uncheck all, default: '0'*
+        * `last_api_call_date` (date) *settings: 'is nullable', uncheck all else, no default value*
+    * **Add a Foreign Key:** Click the "link" icon next to the `id` column and add a foreign key relation to `id` -> `auth.users`.
+
+4.  **Create the Database Trigger to automatically create a profile for each new user:**
+    * Navigate to the **SQL Editor**.
+    * Click **"New query"** and paste the entire script below:
+    ```
+    -- 1. Create a function that inserts a new row into public.profiles
+    create or replace function public.handle_new_user()
+    returns trigger
+    language plpgsql
+    security definer set search_path = public
+    as $$
+    begin
+      insert into public.profiles (id, email)
+      values (new.id, new.email);
+      return new;
+    end;
+    $$;
+
+    -- 2. Create the trigger that calls the function after a new user is created
+    create trigger on_new_user_create_profile
+      after insert on auth.users
+      for each row execute procedure public.handle_new_user();
+    ```
+    * Click **"Run"**.
+
+5.  **Set Your Site URL:**
+    * Go to **Authentication -> URL Configuration** and set the **Site URL** to your app's deployment URL (e.g., `https://your-app-name.streamlit.app`)
+
+6.  **Create Your Admin User:**
     * Go to **Authentication -> Users** and click **"Add User"**.
     * Enter the email and password you want to use for your admin account.
     * **Important:** After the user is created, copy their **User UUID**. You will need this for the security policies.
-5.  **Enable Row Level Security (RLS):**
-    * Go to **Authentication -> Policies**.
-    * Select the `entries` table and click **"Enable RLS"**.
-    * **Policy 1: Allow Public Read Access**
 
-        * Click **"New Policy" -> "Create a new policy from scratch"**.
+7.  **Enable Row Level Security (RLS):**
 
-        * **Policy Name:** `Allow public read-only access`
+    **Enable RLS:**
+    * Go to **Authentication -> Policies** and enable RLS for both the `entries` and `profiles` tables.
+    * Create Policies for `entries`:
+        * **Policy 1 (Read):** Name: `Allow individual read access`, Operation: `SELECT`, USING expression: `auth.uid() = user_id`
+        * **Policy 2 (Write):** Name: `Allow individual write access`, Operation: `ALL`, USING expression: `auth.uid() = user_id`, WITH CHECK expression: `auth.uid() = user_id`
+        
+    * Create Policies for `profiles`:
+        * **Policy 1 (Read Self):** Name: `Allow users to read own profile`, Operation: `SELECT`, USING expression: `auth.uid() = id`
+        * **Policy 2 (Admin Read All):** Name: `Allow master admin to read all profiles`, Operation: `SELECT`, USING expression: `auth.uid() = 'PASTE_YOUR_MASTER_USER_UUID_HERE'`
+        * **Policy 3 (Admin Update):** Name: `Allow master admin to update profiles`, Operation: `UPDATE`, USING expression: `auth.uid() = 'PASTE_YOUR_MASTER_USER_UUID_HERE'`
 
-        * **Policy command:** `SELECT`
+8.  **Manually Approve Your Admin Account:**
+    * Go to the **Table Editor** -> `profiles` table.
+    * Find your master admin's row and change `is_approved` from `false` to `true`.
 
-        * **USING expression:** Copy and paste `true` into the `USING` field.
 
-        * Save the policy.
-
-    * **Policy 2: Allow Admin Full Access**
-
-        * Click **"New Policy" -> "Create a new policy from scratch"**.
-
-        * **Policy Name:** `Allow admin full access`
-
-        * **Policy command:** `ALL`
-
-        * Tick the **"use the WITH CHECK expression"** box.
-
-        * **USING expression:** `auth.uid() = 'PASTE_YOUR_ADMIN_USER_UUID_HERE'`
-
-        * **WITH CHECK expression:** `auth.uid() = 'PASTE_YOUR_ADMIN_USER_UUID_HERE'`
-
-        * Save the policy.
 
 ### 3. Local Code Setup
 

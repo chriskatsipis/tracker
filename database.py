@@ -1,6 +1,7 @@
 import streamlit as st
 from supabase import create_client, Client
 from datetime import date
+from functools import wraps
 
 # --- Supabase Initialization ---
 def init_connection():
@@ -15,78 +16,125 @@ def init_connection():
 
 supabase: Client = init_connection()
 
-# --- User Authentication Functions ---
-# The admin user should be created directly in the Supabase dashboard.
+# --- Rate Limiting Decorator ---
+def rate_limit_check(func):
+    """
+    A decorator that checks and updates API call counts for non-master users.
+    """
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        # The user object is always the last positional argument in our data functions
+        user = st.session_state.get('user')
+        if not user or not hasattr(user, 'id'):
+            raise Exception("User not logged in.")
+        
+        user_id = user.id
+        master_user_id = st.secrets.get("MASTER_USER_ID")
 
-def login_user(email, password):
-    """Logs in an existing user."""
-    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+        # Master user bypasses all checks
+        if user_id == master_user_id:
+            return func(*args, **kwargs)
+
+        # --- Regular User Rate Limiting Logic ---
+        profile = supabase.table('profiles').select('*').eq('id', user_id).single().execute().data
+        if not profile:
+            raise Exception("User profile not found.")
+
+        today = date.today().isoformat()
+        last_call_date = profile.get('last_api_call_date')
+        api_calls = profile.get('api_call_count', 0)
+
+        if last_call_date != today:
+            # First call of the day, reset counter
+            api_calls = 0
+            supabase.table('profiles').update({
+                'last_api_call_date': today,
+                'api_call_count': 1
+            }).eq('id', user_id).execute()
+        elif api_calls >= 50:
+            # Limit reached
+            st.error("API call limit (50/day) reached. Please try again tomorrow.")
+            return None # Stop execution
+        else:
+            # Increment counter
+            supabase.table('profiles').update({
+                'api_call_count': api_calls + 1
+            }).eq('id', user_id).execute()
+
+        return func(*args, **kwargs)
+    return wrapper
+
+# --- User Authentication Functions ---
+def create_user(email, password):
+    res = supabase.auth.sign_up({"email": email, "password": password})
     if res.user:
         return res.user
-    else:
+    raise Exception(res.error.message if res.error else "Could not create user.")
+
+def login_user(email, password):
+    res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+    if not res.user:
         raise Exception(res.error.message if res.error else "Invalid login credentials.")
+    
+    # Check if user is approved
+    profile = supabase.table('profiles').select('is_approved').eq('id', res.user.id).single().execute().data
+    if not profile or not profile.get('is_approved'):
+        raise Exception("Account is pending admin approval.")
+    
+    return res.user
 
-# --- Data Functions ---
+# --- Data Functions (now protected by rate limiter) ---
+
+# READ functions are protected by caching.
 
 @st.cache_data(ttl=60)
-def get_entries_by_date(entry_date: date):
-    """Retrieves all food entries for a specific date (publicly readable)."""
-    response = supabase.table('entries').select("*").eq('entry_date', entry_date.isoformat()).order('id').execute()
+def get_entries_by_date(entry_date: date, user_id: str):
+    response = supabase.table('entries').select("*").eq('entry_date', entry_date.isoformat()).eq('user_id', user_id).order('id').execute()
     return response.data
 
 @st.cache_data(ttl=60)
-def get_all_entries():
-    """Retrieves all entries (publicly readable)."""
-    response = supabase.table('entries').select("*").order('entry_date', desc=True).execute()
+def get_all_entries(user_id: str):
+    response = supabase.table('entries').select("*").eq('user_id', user_id).order('entry_date', desc=True).execute()
     return response.data
 
+# WRITE functions are protected by the rate limiter.
+
+@rate_limit_check
 def add_entry(entry_date: date, description: str, calories: float, protein: float, carbs: float, fats: float, goals: dict, user_id: str):
-    """Adds a new food entry for a specific user (the admin)."""
-    entry = {
-        'entry_date': str(entry_date),
-        'description': description,
-        'calories': int(calories),
-        'protein': int(protein),
-        'carbs': int(carbs),
-        'fats': int(fats),
-        'goal_calories': int(goals['calories']),
-        'goal_protein': int(goals['protein']),
-        'goal_carbs': int(goals['carbs']),
-        'goal_fats': int(goals['fats']),
-        'user_id': user_id
-    }
-    response = supabase.table('entries').insert(entry).execute()
+    entry = {'entry_date': str(entry_date), 'description': description, 'calories': int(calories), 'protein': int(protein), 'carbs': int(carbs), 'fats': int(fats), 'goal_calories': int(goals['calories']), 'goal_protein': int(goals['protein']), 'goal_carbs': int(goals['carbs']), 'goal_fats': int(goals['fats']), 'user_id': user_id}
+    supabase.table('entries').insert(entry).execute()
     get_entries_by_date.clear()
     get_all_entries.clear()
-    return response.data
 
-def delete_entry(entry_id: int):
-    """Deletes an entry by its ID (admin only)."""
+@rate_limit_check
+def delete_entry(entry_id: int, user_id: str): # user_id is passed for the decorator
     supabase.table('entries').delete().eq('id', entry_id).execute()
     get_entries_by_date.clear()
     get_all_entries.clear()
 
-def update_entry(entry_id: int, description: str, calories: float, protein: float, carbs: float, fats: float):
-    """Updates an existing food entry (admin only)."""
-    update_data = {
-        'description': description,
-        'calories': int(calories),
-        'protein': int(protein),
-        'carbs': int(carbs),
-        'fats': int(fats),
-    }
+@rate_limit_check
+def update_entry(entry_id: int, description: str, calories: float, protein: float, carbs: float, fats: float, user_id: str):
+    update_data = {'description': description, 'calories': int(calories), 'protein': int(protein), 'carbs': int(carbs), 'fats': int(fats)}
     supabase.table('entries').update(update_data).eq('id', entry_id).execute()
     get_entries_by_date.clear()
     get_all_entries.clear()
 
-def update_goals_for_date(entry_date: date, new_goals: dict):
-    """Updates goals for all entries on a specific date (admin only)."""
-    update_data = {
-        'goal_calories': int(new_goals['calories']),
-        'goal_protein': int(new_goals['protein']),
-        'goal_carbs': int(new_goals['carbs']),
-        'goal_fats': int(new_goals['fats']),
-    }
-    supabase.table('entries').update(update_data).eq('entry_date', str(entry_date)).execute()
+@rate_limit_check
+def update_goals_for_date(entry_date: date, new_goals: dict, user_id: str):
+    update_data = {'goal_calories': int(new_goals['calories']), 'goal_protein': int(new_goals['protein']), 'goal_carbs': int(new_goals['carbs']), 'goal_fats': int(new_goals['fats'])}
+    supabase.table('entries').update(update_data).eq('entry_date', str(entry_date)).eq('user_id', user_id).execute()
     get_entries_by_date.clear()
     get_all_entries.clear()
+
+# --- Admin Panel Functions (not rate-limited) ---
+def get_pending_users():
+    """Fetches all users who are not yet approved."""
+    if not supabase: return []
+    # Assumes RLS is set up for admin to read all profiles
+    response = supabase.table('profiles').select('id, email').eq('is_approved', False).execute()
+    return response.data
+
+def approve_user(user_id_to_approve: str):
+    """Sets a user's is_approved status to True."""
+    if not supabase: return
+    supabase.table('profiles').update({'is_approved': True}).eq('id', user_id_to_approve).execute()
