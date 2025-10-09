@@ -164,6 +164,7 @@ def upsert_user_preferences(user_id: str, goals: dict):
 
 # --- Recipe Functions ---
 
+@rate_limit_check
 def add_recipe(user_id: str, name: str, description: str, instructions: str, servings: float, nutrition: dict, is_public: bool):
     """Adds a new recipe to the database."""
     recipe_data = {
@@ -190,6 +191,7 @@ def get_public_recipes():
     response = supabase.table('recipes').select('*').eq('is_public', True).order('name').execute()
     return response.data
 
+@rate_limit_check
 def delete_recipe(recipe_id: int):
     """Deletes a recipe by its ID."""
     supabase.table('recipes').delete().eq('id', recipe_id).execute()
